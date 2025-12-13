@@ -1,0 +1,34 @@
+name: Daily Tarot Post
+
+on:
+  schedule:
+    # 毎日 日本時間 9:00 (UTC 0:00)
+    - cron: '0 0 * * *'
+  workflow_dispatch: # 手動実行用
+
+jobs:
+  post-to-x:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v3
+
+    - name: Setup Node.js
+      uses: actions/setup-node@v3
+      with:
+        node-version: '18'
+
+    - name: Install dependencies
+      run: npm install
+
+    - name: Run Automation Script
+      env:
+        ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        X_API_KEY: ${{ secrets.X_API_KEY }}
+        X_API_SECRET: ${{ secrets.X_API_SECRET }}
+        X_ACCESS_TOKEN: ${{ secrets.X_ACCESS_TOKEN }}
+        X_ACCESS_SECRET: ${{ secrets.X_ACCESS_SECRET }}
+        X_CLIENT_ID: ${{ secrets.X_CLIENT_ID }}
+        X_CLIENT_SECRET: ${{ secrets.X_CLIENT_SECRET }}
+      run: npx ts-node src/x_automation/index.ts --post

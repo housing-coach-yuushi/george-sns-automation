@@ -1,0 +1,14 @@
+{
+  "title": "Double Exposure (Nature/Human)",
+  "concept": "A landscape that reveals a human silhouette when zoomed out.",
+  "narration": "We see the world not as it is, but as we are. Shift your perspective.",
+  "scenes": [
+    {
+      "id": 1,
+      "type": "video",
+      "prompt_image": "A mysterious landscape with two trees bending towards each other, a moon in the center, forming the silhouette of a human skull, optical illusion, double exposure, surrealism, 8k",
+      "prompt_video": "Camera slowly zooms out, the landscape elements align to clearly reveal the skull shape, eerie atmosphere, cinematic movement",
+      "duration": 5
+    }
+  ]
+}
