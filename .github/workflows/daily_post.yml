@@ -2,7 +2,7 @@ name: Daily Tarot Post
 
 on:
   schedule:
-    # 毎日 日本時間 9:00 (UTC 0:00)
+    # 毎日 日本時間 22:00 (UTC 13:00)
     - cron: '0 13 * * *'
   workflow_dispatch: # 手動実行用
 
@@ -32,3 +32,11 @@ jobs:
         X_CLIENT_ID: ${{ secrets.X_CLIENT_ID }}
         X_CLIENT_SECRET: ${{ secrets.X_CLIENT_SECRET }}
       run: npx ts-node src/x_automation/index.ts --post
+
+    - name: Run Note Automation Script
+      env:
+        ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        NOTE_EMAIL: ${{ secrets.NOTE_EMAIL }}
+        NOTE_PASSWORD: ${{ secrets.NOTE_PASSWORD }}
+        NOTE_COOKIES_JSON: ${{ secrets.NOTE_COOKIES_JSON }}
+      run: npx ts-node src/note_automation/index.ts --post
