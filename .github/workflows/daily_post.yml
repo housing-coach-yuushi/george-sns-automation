@@ -3,7 +3,7 @@ name: Daily Tarot Post
 on:
   schedule:
     # 毎日 日本時間 9:00 (UTC 0:00)
-    - cron: '0 0 * * *'
+    - cron: '0 13 * * *'
   workflow_dispatch: # 手動実行用
 
 jobs:
