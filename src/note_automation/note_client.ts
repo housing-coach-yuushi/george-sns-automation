@@ -22,6 +22,7 @@ export const postToNote = async (content: { title: string; body: string }) => {
 
     // Set a decent viewport
     await page.setViewport({ width: 1280, height: 800 });
+    await page.setUserAgent('Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36');
 
     try {
         // 0. Load cookies from Env (for CI/CD) if file doesn't exist
@@ -121,9 +122,25 @@ export const postToNote = async (content: { title: string; body: string }) => {
             console.log("Already logged in via cookies.");
         }
 
-        console.log("Opening Editor...");
-        // If we are not on the editor page yet, go there
-        if (!page.url().includes('notes/new')) {
+        console.log("Navigating to Note Home...");
+        await page.goto('https://note.com/', { waitUntil: 'domcontentloaded' });
+
+        console.log("Clicking 'Post' (投稿) button from header...");
+        // Try to find the "投稿" button in the header
+        const postButtonSelector = 'a[href^="/new"], button[class*="Button"]';
+
+        const postBtn = await page.evaluateHandle(() => {
+            const elements = Array.from(document.querySelectorAll('a, button'));
+            return elements.find(el => el.textContent?.includes('投稿') || el.getAttribute('href') === '/new' || el.getAttribute('href') === 'https://note.com/new');
+        });
+
+        if (postBtn.asElement()) {
+            await Promise.all([
+                page.waitForNavigation({ waitUntil: 'domcontentloaded' }),
+                (postBtn as any).click()
+            ]);
+        } else {
+            console.log("Could not find 'Post' button on home. Trying direct navigation...");
             await page.goto('https://note.com/notes/new', { waitUntil: 'domcontentloaded' });
         }
 
@@ -134,10 +151,10 @@ export const postToNote = async (content: { title: string; body: string }) => {
             const spinnerSelector = '.sc-e17b66d3-0';
             if (await page.$(spinnerSelector)) {
                 console.log("Waiting for loading spinner to disappear...");
-                await page.waitForSelector(spinnerSelector, { hidden: true, timeout: 15000 });
+                await page.waitForSelector(spinnerSelector, { hidden: true, timeout: 30000 });
             }
         } catch (e) {
-            console.log("Spinner wait error (ignoring):", e);
+            console.log("Spinner wait error (timed out? continuing anyway):", e);
         }
 
         // Wait for potential hydration or redirect
