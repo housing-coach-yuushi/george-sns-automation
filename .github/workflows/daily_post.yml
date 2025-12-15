@@ -1,10 +1,10 @@
-name: Daily Tarot Post
+name: Daily SNS Automation
 
 on:
   schedule:
-    # 毎日 日本時間 22:00 (UTC 13:00)
+    # Daily running at 22:00 JST (13:00 UTC)
     - cron: '0 13 * * *'
-  workflow_dispatch: # 手動実行用
+  workflow_dispatch: {}
   push:
     branches:
       - main
