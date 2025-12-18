@@ -1,4 +1,4 @@
-import { generateNoteContent } from './note_generator';
+// import { generateNoteContent } from './note_generator';
 import { postToNote } from './note_client';
 // import { generateTarotContent } from '../x_automation/content_generator';
 
@@ -9,28 +9,36 @@ async function main() {
     console.log(`Starting Note Automation (Dry Run: ${isDryRun})`);
 
     try {
-        // 1. Generate Tarot Reading (or reuse same logic as X)
-        // We reuse the X content generator to get the "base" content.
-        // Ideally we pass the SAME card/reading as X, but for now we generate a fresh one or we need a way to pass it.
-        // For simplicity, let's generate a fresh reading here, or ask user if they want to link it.
-        // Since the prompt says "Based on the X post", we simulate it by generating a short X-like reading first.
+        // 1. Read input from X automation
+        const fs = require('fs');
+        const path = require('path');
+        const dataPath = path.resolve(__dirname, '../../generated/daily_data.json');
 
-        // Simulating X content for input
-        // Real implementation should probably read from a shared "daily_seed.json" or similar if we want them to match exactly.
-        // For now, we will just generate 'a' reading.
+        let cardName = "The Moon (正位置)"; // Fallback
+        let noteContentBody = ""; // Fallback content
 
-        // However, `generateTarotContent` returns the full formatted text.
-        // We might want just the card name and reading text.
+        if (fs.existsSync(dataPath)) {
+            const data = JSON.parse(fs.readFileSync(dataPath, 'utf8'));
+            // Check if data is from last 24h? For now, just trust it.
+            console.log(`Loaded daily data from ${data.date}`);
+            // cardName = data.cardName;
+            // xContent = data.content; // No longer needed for generation
+            noteContentBody = data.noteContent;
+        } else {
+            console.warn("WARNING: generated/daily_data.json not found. Using fallback/dummy data.");
+            if (!isDryRun) {
+                throw new Error("Cannot post to Production without X data source. Run X automation first.");
+            }
+        }
 
-        // Let's modify `generateTarotContent` or just parse its output?
-        // Actually, `generateTarotContent` calls Claude.
+        if (!noteContentBody) {
+            throw new Error("No noteContent found in daily_data.json");
+        }
 
-        // Let's just call `generateNoteContent` with a "simulated" previous reading for this v1.
-
-        const dummyCard = "The Moon (正位置)";
-        const dummyReading = "足元が揺らぐような不安は、新しい感性が芽生えている証拠かもしれません。";
-
-        const noteContent = await generateNoteContent(dummyCard, dummyReading);
+        const noteContent = {
+            title: `【運勢】${new Date().toLocaleDateString('ja-JP')}のタロット`, // Simple title or could be generated
+            body: noteContentBody
+        };
 
         console.log("\n--- Generated Note Content ---");
         console.log(`Title: ${noteContent.title}`);

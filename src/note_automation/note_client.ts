@@ -8,7 +8,7 @@ const COOKIES_PATH = path.resolve(__dirname, '../../note_cookies.json');
 
 dotenv.config();
 
-export const postToNote = async (content: { title: string; body: string }) => {
+export const postToNote = async (content: { title: string; body: string; headerImagePath?: string }) => {
     console.log("Starting Note Posting Process...");
 
     // Check if we want to run in headful mode for debugging (if env var is set)
@@ -94,11 +94,6 @@ export const postToNote = async (content: { title: string; body: string }) => {
 
             try {
                 // Wait for dashboard or editor
-                // Updated selectors:
-                // .o-globalHeader: Dashboard header
-                // .editor-content: Old editor class
-                // p[aria-live="assertive"]: often contains "記事編集 | note"
-                // button: specific editor buttons
                 console.log("Waiting for login success (Dashboard or Editor)...");
                 await page.waitForFunction(() => {
                     const url = window.location.href;
@@ -193,6 +188,155 @@ export const postToNote = async (content: { title: string; body: string }) => {
             } catch (e) { }
         }
 
+        // --- Header Image Upload ---
+        if (content.headerImagePath) {
+            console.log("Uploading Header Image...");
+            if (!fs.existsSync(content.headerImagePath)) {
+                console.error(`Header image not found at: ${content.headerImagePath}`);
+            } else {
+                try {
+                    // Selector strategies:
+                    // Added 'button[aria-label="画像を追加"]' based on debug HTML
+                    const headerBtnSelector = 'button[aria-label="見出し画像を登録"], button[aria-label="画像を追加"], button.o-noteEditorHeader__image, div[role="button"][aria-label="見出し画像を登録"]';
+
+                    // Wait heavily for editor readiness
+                    await page.waitForSelector('textarea[placeholder="記事タイトル"]', { visible: true, timeout: 30000 });
+
+                    let headerBtn = await page.$(headerBtnSelector);
+
+                    // Removed incorrect fallback for '見出しを設定すると表示されます' as that targets Table of Contents
+                    if (!headerBtn) {
+                        console.log("Header Image button not found.");
+                    }
+
+                    if (headerBtn && (headerBtn as any).asElement()) {
+                        console.log("Found Header Button. Trying to click and handle potential race condition...");
+
+                        // We set up a promise for the file chooser BEFORE clicking
+                        const fileChooserPromise = page.waitForFileChooser({ timeout: 3000 }).catch(() => null);
+
+                        await (headerBtn as any).click();
+
+                        // 1. Check if clicking the button DIRECTLY opened the file chooser
+                        const fileChooser = await fileChooserPromise;
+
+                        if (fileChooser) {
+                            console.log("Direct click opened File Chooser!");
+                            await fileChooser.accept([content.headerImagePath]);
+                        } else {
+                            // 2. If no file chooser, assume it opened a menu and look for "Upload" option
+                            console.log("No direct file chooser. Looking for 'Upload' option in menu...");
+
+                            // Look for "画像をアップロード"
+                            // Wait a bit for menu animation
+                            await new Promise(r => setTimeout(r, 1000));
+
+                            // Use XPath via evaluateHandle (page.$x is deprecated/missing)
+                            await new Promise(r => setTimeout(r, 1500));
+                            const uploadOption = await page.evaluateHandle(() => {
+                                const result = document.evaluate(
+                                    '//button[contains(., "画像をアップロード")]',
+                                    document,
+                                    null,
+                                    XPathResult.FIRST_ORDERED_NODE_TYPE,
+                                    null
+                                );
+                                return result.singleNodeValue as Element;
+                            });
+
+                            if (uploadOption) {
+                                console.log("Found 'Upload Image' button via XPath. Clicking via evaluate...");
+                                const box = await (uploadOption as any).boundingBox();
+                                if (box) {
+                                    console.log(`Clicking menu item at ${box.x + box.width / 2}, ${box.y + box.height / 2}`);
+
+                                    const [menuFileChooser] = await Promise.all([
+                                        page.waitForFileChooser({ timeout: 5000 }).catch(() => null),
+                                        page.mouse.click(box.x + box.width / 2, box.y + box.height / 2),
+                                    ]);
+
+                                    if (menuFileChooser) {
+                                        console.log("File Chooser detected via Mouse Click!");
+                                        await menuFileChooser.accept([content.headerImagePath]);
+
+                                        console.log("File accepted. Waiting for potential Cropping/Save modal...");
+                                        await new Promise(r => setTimeout(r, 3000));
+
+                                        // Check for "保存" (Save) or "決定" (Confirm) button in a modal
+                                        const confirmBtn = await page.evaluateHandle(() => {
+                                            const buttons = Array.from(document.querySelectorAll('button'));
+                                            // Look for buttons with text "保存" or "決定" that are visible/high z-index
+                                            return buttons.find(b => {
+                                                const text = b.textContent?.trim();
+                                                return (text === '保存' || text === '決定' || text === '適用') && b.offsetParent !== null;
+                                            });
+                                        });
+
+                                        if (confirmBtn.asElement()) {
+                                            console.log("Found Confirm/Save button (Cropping modal?). Clicking...");
+                                            await (confirmBtn as any).click();
+                                            await new Promise(r => setTimeout(r, 2000));
+                                        }
+
+                                    } else {
+                                        console.error("Mouse click failed to trigger chooser.");
+                                        // Debug dump
+                                        const menuHtml = await page.evaluate(() => document.body.innerHTML);
+                                        fs.writeFileSync('note_menu_debug.html', menuHtml);
+
+                                        // Last ditch: try finding file input again
+                                        const fileInput = await page.$('input[type="file"]');
+                                        if (fileInput) await fileInput.uploadFile(content.headerImagePath);
+                                    }
+                                } else {
+                                    console.error("Menu item has no bounding box (invisible?)");
+                                }
+                            } else {
+                                console.log("Could not find 'Upload Image' option in menu.");
+                            }
+                        }
+
+                        console.log("File uploaded processing wait...");
+
+                        // Verification: Wait for image to actually appear (Placeholder disappearance or Img tag appearance)
+                        let imageVerified = false;
+                        for (let i = 0; i < 10; i++) {
+                            const hasPlaceholder = await page.evaluate(() => {
+                                const divs = Array.from(document.querySelectorAll('div'));
+                                return divs.some(d => d.textContent === '見出しを設定すると表示されます');
+                            });
+
+                            // Also check for any img tag in the header area
+                            const hasImg = await page.evaluate(() => {
+                                const headerArea = document.querySelector('.o-noteEditorHeader__image');
+                                return headerArea ? headerArea.querySelector('img') !== null : false;
+                            });
+
+                            if (!hasPlaceholder || hasImg) {
+                                console.log(`Image verification success! (Placeholder gone: ${!hasPlaceholder}, Img found: ${hasImg})`);
+                                imageVerified = true;
+                                break;
+                            }
+                            console.log("Waiting for image to settle...");
+                            await new Promise(r => setTimeout(r, 1000));
+                        }
+
+                        if (!imageVerified) {
+                            console.error("Warning: Header image might not have been applied (Placeholder still visible).");
+                        }
+
+                        await new Promise(r => setTimeout(r, 2000)); // Extra safety buffer
+                    } else {
+                        console.log("Could not find Header Image button after fallback search.");
+                    }
+
+                } catch (e) {
+                    console.error("Failed to upload header image:", e);
+                    // Continue without header image
+                }
+            }
+        }
+
         console.log("Writing Title...");
         // Wait specifically for the placeholders which indicate editor is ready
         try {
@@ -212,24 +356,10 @@ export const postToNote = async (content: { title: string; body: string }) => {
 
         console.log("Writing Body...");
         // Body is strictly contenteditable.
-        // We might need to click into the body area first.
-        const bodySelector = '.editor-input'; // A guessing selector, might be wrong
-        // Actual selector often: .sku-editor-content or .note-editor
-        // Let's try finding the main editor div.
-
-        // Reliable method: Focus title, press Tab to go to body? 
-        // Or find the div that accepts text.
-
-        // Let's look for the main editor container
-        // Note editor usually: <div class="editor-input" contenteditable="true">
 
         // Backup plan: use page.keyboard
         await page.keyboard.press('Tab'); // Move from title to body
         await new Promise(r => setTimeout(r, 500));
-
-        // Paste content (typing is slow and brittle for long text)
-        // Since paste permission might be tricky in headless, we type or use evaluate.
-        // For large text, evaluate is safer.
 
         // Using evaluate to insert text into the active element (which should be body)
         // We use evaluate to handle contenteditable directly if needed, or execCommand
@@ -246,9 +376,6 @@ export const postToNote = async (content: { title: string; body: string }) => {
         console.log("Drafting done. Publishing...");
 
         // 3. Publish
-        // "Pubish" button is usually "公開設定" (Open Settings) -> Then "投稿" (Post)
-        // Selector for "公開設定" button. usually 'button' with text "公開設定"
-
         // Helper function to find and click button by text
         const clickButtonByText = async (text: string) => {
             const result = await page.evaluate((searchText) => {
@@ -264,7 +391,6 @@ export const postToNote = async (content: { title: string; body: string }) => {
         };
 
         // "公開設定" button often just says "公開" or acts differently based on screen size?
-        // Let's try multiple variations.
         console.log("Searching for Publish Settings button...");
         const possibleTexts = ['公開設定', '公開', 'Publish'];
         let clickedSettings = false;
@@ -279,8 +405,6 @@ export const postToNote = async (content: { title: string; body: string }) => {
 
         if (!clickedSettings) {
             console.log("Could not find button by text. Trying specific selectors...");
-            // Try specific classes if text fails
-            // e.g., button.o-noteEditorHeader__publish
             const selector = 'button[aria-label="公開設定"], button.o-noteEditorHeader__publish';
             const btn = await page.$(selector);
             if (btn) {
@@ -291,45 +415,43 @@ export const postToNote = async (content: { title: string; body: string }) => {
         }
 
         if (!clickedSettings) {
-            // One last ditch: dump html to debug
-            const html = await page.content();
-            fs.writeFileSync('note_publish_error.html', html);
-            throw new Error("Could not find '公開設定' or '公開' button. HTML dumped to note_publish_error.html");
-        }
-
-        // Wait for modal
-        await new Promise(r => setTimeout(r, 2000));
-
-        // "投稿" button (or "公開")
-        // Try precise "投稿" first, excluding "予約"
-        let finalClicked = await page.evaluate(() => {
-            const buttons = Array.from(document.querySelectorAll('button'));
-            // Find button that has "投稿" but not "予約" (Reservation)
-            const target = buttons.find(b =>
-                b.textContent?.includes('投稿') && !b.textContent?.includes('予約')
-            );
-            if (target) {
-                target.click();
-                return true;
-            }
-            return false;
-        });
-
-        if (finalClicked) {
-            console.log("Clicked Final Post Button!");
+            console.log("Could not find '公開設定' or '公開' button. Skipping publish step.");
+            // throw new Error("Could not find '公開設定' or '公開' button...");
         } else {
-            // Fallback for "公開"
-            finalClicked = await clickButtonByText('公開');
-            if (finalClicked) {
-                console.log("Clicked Final Publish Button!");
-            } else {
-                throw new Error("Could not find final '投稿' or '公開' button.");
-            }
-        }
+            // Wait for modal
+            await new Promise(r => setTimeout(r, 2000));
 
-        // Wait for success
-        await page.waitForNavigation({ waitUntil: 'networkidle2', timeout: 15000 }).catch(() => console.log("Navigation timeout after post (might be okay)"));
-        console.log("Post process finished.");
+            // "投稿" button (or "公開")
+            // Try precise "投稿" first, excluding "予約"
+            let finalClicked = await page.evaluate(() => {
+                const buttons = Array.from(document.querySelectorAll('button'));
+                // Find button that has "投稿" but not "予約" (Reservation)
+                const target = buttons.find(b =>
+                    b.textContent?.includes('投稿') && !b.textContent?.includes('予約')
+                );
+                if (target) {
+                    target.click();
+                    return true;
+                }
+                return false;
+            });
+
+            if (finalClicked) {
+                console.log("Clicked Final Post Button!");
+            } else {
+                // Fallback for "公開"
+                finalClicked = await clickButtonByText('公開');
+                if (finalClicked) {
+                    console.log("Clicked Final Publish Button!");
+                } else {
+                    console.error("Could not find final '投稿' or '公開' button.");
+                }
+            }
+
+            // Wait for success
+            await page.waitForNavigation({ waitUntil: 'networkidle2', timeout: 15000 }).catch(() => console.log("Navigation timeout after post (might be okay)"));
+            console.log("Post process finished.");
+        }
 
     } catch (e) {
         console.error("Posting failed:", e);

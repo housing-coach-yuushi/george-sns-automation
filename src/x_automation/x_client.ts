@@ -19,6 +19,34 @@ export class XClient {
         });
     }
 
+    async uploadMedia(buffer: Buffer, mimeType: string): Promise<string> {
+        try {
+            console.log("Uploading media to X...");
+            const mediaId = await this.client.v1.uploadMedia(buffer, { mimeType });
+            console.log("Media uploaded successfully! Media ID:", mediaId);
+            return mediaId;
+        } catch (error) {
+            console.error("Failed to upload media to X:", error);
+            throw error;
+        }
+    }
+
+    async postTweetWithMedia(text: string, mediaIds: string[]): Promise<void> {
+        try {
+            console.log("Posting tweet with media to X...");
+            const response = await this.client.v2.tweet({
+                text: text,
+                media: { media_ids: mediaIds as any }
+            });
+            console.log("Successfully posted to X with media!");
+            console.log("Tweet ID:", response.data.id);
+            console.log("Text:", response.data.text);
+        } catch (error) {
+            console.error("Failed to post to X with media:", error);
+            throw error;
+        }
+    }
+
     async postTweet(text: string): Promise<void> {
         try {
             console.log("Posting to X...");
