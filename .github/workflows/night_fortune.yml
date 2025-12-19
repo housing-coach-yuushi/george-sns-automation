@@ -1,16 +1,13 @@
-name: Daily SNS Automation
+name: Nightly Fortune Post (22:00 JST)
 
 on:
   schedule:
-    # Daily running at 22:00 JST (13:00 UTC)
+    # 22:00 JST is 13:00 UTC
     - cron: '0 13 * * *'
   workflow_dispatch: {}
-  push:
-    branches:
-      - main
 
 jobs:
-  post-to-x:
+  post-fortune:
     runs-on: ubuntu-latest
 
     steps:
@@ -25,7 +22,7 @@ jobs:
     - name: Install dependencies
       run: npm install
 
-    - name: Run Automation Script
+    - name: Run X Automation (Generate & Post)
       env:
         ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
         X_API_KEY: ${{ secrets.X_API_KEY }}
@@ -36,7 +33,7 @@ jobs:
         X_CLIENT_SECRET: ${{ secrets.X_CLIENT_SECRET }}
       run: npx ts-node src/x_automation/index.ts --post
 
-    - name: Run Note Automation Script
+    - name: Run Note Automation (Post generated content)
       env:
         ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
         NOTE_EMAIL: ${{ secrets.NOTE_EMAIL }}
