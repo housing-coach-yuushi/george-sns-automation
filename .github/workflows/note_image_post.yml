@@ -29,3 +29,11 @@ jobs:
         NOTE_PASSWORD: ${{ secrets.NOTE_PASSWORD }}
         NOTE_COOKIES_JSON: ${{ secrets.NOTE_COOKIES_JSON }}
       run: npx ts-node src/scripts/run_note_fragment.ts --post
+
+    - name: Upload Note Error HTML
+      if: failure()
+      uses: actions/upload-artifact@v3
+      with:
+        name: note-error-html-noon
+        path: note_post_error.html
+
