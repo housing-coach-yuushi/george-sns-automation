@@ -1,0 +1,31 @@
+name: Note Image Post (13:00 JST)
+
+on:
+  schedule:
+    # 13:00 JST is 04:00 UTC
+    - cron: '0 4 * * *'
+  workflow_dispatch: {}
+
+jobs:
+  post-note-fragment:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v3
+
+    - name: Setup Node.js
+      uses: actions/setup-node@v3
+      with:
+        node-version: '18'
+
+    - name: Install dependencies
+      run: npm install
+
+    - name: Run Note Fragment Automation
+      env:
+        ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        NOTE_EMAIL: ${{ secrets.NOTE_EMAIL }}
+        NOTE_PASSWORD: ${{ secrets.NOTE_PASSWORD }}
+        NOTE_COOKIES_JSON: ${{ secrets.NOTE_COOKIES_JSON }}
+      run: npx ts-node src/scripts/run_note_fragment.ts --post
