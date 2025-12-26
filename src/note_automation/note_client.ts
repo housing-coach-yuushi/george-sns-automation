@@ -496,9 +496,9 @@ export const postToNote = async (content: { title: string; body: string; headerI
             return result;
         };
 
-        // "公開設定" button often just says "公開" or acts differently based on screen size?
+        // Note UI now uses "公開に進む" button (changed from "公開設定" or "公開")
         console.log("Searching for Publish Settings button...");
-        const possibleTexts = ['公開設定', '公開', 'Publish'];
+        const possibleTexts = ['公開に進む', '公開設定', '公開', 'Publish'];
         let clickedSettings = false;
 
         for (const text of possibleTexts) {
@@ -532,14 +532,16 @@ export const postToNote = async (content: { title: string; body: string; headerI
             // Wait for modal
             await new Promise(r => setTimeout(r, 2000));
 
-            // "投稿" button (or "公開")
-            // Try precise "投稿" first, excluding "予約"
+            // Note UI now uses "投稿する" button (button may contain nested spans)
+            // Try precise "投稿する" first, excluding "予約投稿"
             let finalClicked = await page.evaluate(() => {
                 const buttons = Array.from(document.querySelectorAll('button'));
-                // Find button that has "投稿" but not "予約" (Reservation)
-                const target = buttons.find(b =>
-                    b.textContent?.includes('投稿') && !b.textContent?.includes('予約')
-                );
+                // Find button that has "投稿する" exactly or contains "投稿" but not "予約"
+                const target = buttons.find(b => {
+                    const text = b.textContent?.trim() || '';
+                    return (text === '投稿する' || text.includes('投稿する') ||
+                        (text.includes('投稿') && !text.includes('予約')));
+                });
                 if (target) {
                     target.click();
                     return true;
