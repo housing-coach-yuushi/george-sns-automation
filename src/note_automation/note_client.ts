@@ -527,64 +527,93 @@ export const postToNote = async (content: { title: string; body: string; headerI
             await page.screenshot({ path: `note_post_error_no_button_${timestamp}.png`, fullPage: true });
 
             // CRITICAL FIX: Throw error to ensure workflow fails RED if button is missing
-            throw new Error("Could not find '公開設定' or '公開' button. Workflow marked as failed.");
+            throw new Error("Could not find '公開に進む' or '公開' button. Workflow marked as failed.");
         } else {
-            // Wait for modal
-            await new Promise(r => setTimeout(r, 2000));
+            // Wait for page navigation/modal to load after clicking "公開に進む"
+            console.log("Waiting for publish screen to load...");
+            try {
+                // Try to wait for navigation first
+                await page.waitForNavigation({ waitUntil: 'networkidle0', timeout: 10000 }).catch(() => { });
+            } catch (e) { }
+
+            // Additional wait for UI to settle
+            await new Promise(r => setTimeout(r, 3000));
 
             // Note UI now uses "投稿する" button (button may contain nested spans)
-            // Try precise "投稿する" first, excluding "予約投稿"
-            let finalClicked = await page.evaluate(() => {
-                const buttons = Array.from(document.querySelectorAll('button'));
-                // Find button that has "投稿する" exactly or contains "投稿" but not "予約"
-                const target = buttons.find(b => {
-                    const text = b.textContent?.trim() || '';
-                    return (text === '投稿する' || text.includes('投稿する') ||
-                        (text.includes('投稿') && !text.includes('予約')));
+            // Use retry logic to wait for button to appear
+            console.log("Looking for final publish button with retry...");
+            let finalClicked = false;
+
+            for (let attempt = 1; attempt <= 5; attempt++) {
+                console.log(`Attempt ${attempt}/5: Looking for 投稿する button...`);
+
+                finalClicked = await page.evaluate(() => {
+                    const buttons = Array.from(document.querySelectorAll('button'));
+                    // Find button by text content (checking both direct and nested text)
+                    const target = buttons.find(b => {
+                        const text = b.textContent?.trim() || '';
+                        // Note: The button might say "投稿する", "公開", or be inside a span
+                        return (text === '投稿する' || text.includes('投稿する') ||
+                            (text === '公開' && !text.includes('公開に進む')) ||
+                            (text.includes('投稿') && !text.includes('予約')));
+                    });
+                    if (target) {
+                        console.log('Found button with text:', target.textContent);
+                        target.click();
+                        return true;
+                    }
+                    return false;
                 });
-                if (target) {
-                    target.click();
-                    return true;
-                }
-                return false;
-            });
 
-            if (finalClicked) {
-                console.log("Clicked Final Post Button!");
-            } else {
-                // Fallback for "公開"
-                finalClicked = await clickButtonByText('公開');
                 if (finalClicked) {
-                    console.log("Clicked Final Publish Button!");
-                } else {
-                    // Try to find button by more specific selectors (Note UI may have changed)
-                    console.log("Trying additional selectors for final publish button...");
+                    console.log("Clicked Final Post Button!");
+                    break;
+                }
 
-                    const additionalSelectors = [
-                        'button[data-testid="publish-button"]',
-                        'button.o-modalFooter__primaryButton',
-                        'button[type="submit"]',
-                        'div[role="dialog"] button:last-child'
-                    ];
+                // Wait before retry
+                await new Promise(r => setTimeout(r, 2000));
+            }
 
-                    for (const selector of additionalSelectors) {
+            if (!finalClicked) {
+                // Try additional CSS selectors as fallback
+                console.log("Trying additional selectors for final publish button...");
+
+                const additionalSelectors = [
+                    'button[data-testid="publish-button"]',
+                    'button.o-modalFooter__primaryButton',
+                    'button[type="submit"]',
+                    'div[role="dialog"] button:last-child',
+                    // XPath-like selectors for spans containing text
+                    'button span'
+                ];
+
+                for (const selector of additionalSelectors) {
+                    try {
                         const btn = await page.$(selector);
                         if (btn) {
-                            await btn.click();
-                            finalClicked = true;
-                            console.log(`Clicked button via selector: ${selector}`);
-                            break;
+                            const text = await page.evaluate(el => el.textContent, btn);
+                            if (text && (text.includes('投稿する') || text === '公開')) {
+                                await btn.click();
+                                finalClicked = true;
+                                console.log(`Clicked button via selector: ${selector} (text: ${text})`);
+                                break;
+                            }
                         }
-                    }
+                    } catch (e) { }
+                }
 
-                    if (!finalClicked) {
-                        // Take screenshot for debugging
-                        const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
-                        await page.screenshot({ path: `note_publish_modal_${timestamp}.png`, fullPage: true });
+                if (!finalClicked) {
+                    // Take screenshot for debugging
+                    const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+                    await page.screenshot({ path: `note_publish_modal_${timestamp}.png`, fullPage: true });
 
-                        // CRITICAL: Throw error to mark workflow as failed
-                        throw new Error("Could not find final '投稿' or '公開' button. Note was NOT published.");
-                    }
+                    // Dump HTML for analysis
+                    const html = await page.content();
+                    fs.writeFileSync(`note_publish_debug_${timestamp}.html`, html);
+                    console.log("Saved debug screenshot and HTML");
+
+                    // CRITICAL: Throw error to mark workflow as failed
+                    throw new Error("Could not find final '投稿する' or '公開' button. Note was NOT published.");
                 }
             }
 
