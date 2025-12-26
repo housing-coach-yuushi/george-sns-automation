@@ -17,7 +17,9 @@
     "test:tarot": "ts-node src/scripts/test_tarot_brain.ts",
     "test:cinematic_tarot": "ts-node src/scripts/test_cinematic_tarot.ts",
     "test:veo": "ts-node src/scripts/test_veo.ts",
-    "test:hailuo": "ts-node src/scripts/test_hailuo.ts"
+    "test:hailuo": "ts-node src/scripts/test_hailuo.ts",
+    "daily_cycle": "ts-node src/scripts/daily_cycle.ts --post",
+    "fragment_post": "ts-node src/scripts/run_fragment_post.ts --post"
   },
   "keywords": [],
   "author": "",

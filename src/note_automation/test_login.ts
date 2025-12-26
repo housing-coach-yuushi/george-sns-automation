@@ -46,6 +46,15 @@ async function testLogin() {
 
         if (isLoggedIn || page.url() === 'https://note.com/') {
             console.log("\n✅ Login Successful! (Redirected to home)");
+
+            // Save cookies
+            const cookies = await page.cookies();
+            const fs = require('fs');
+            const path = require('path');
+            const cookiePath = path.resolve(__dirname, '../../note_cookies.json');
+            fs.writeFileSync(cookiePath, JSON.stringify(cookies, null, 2));
+            console.log(`\n🍪 Cookies saved to: ${cookiePath}`);
+            console.log("👉 Please copy the content of this file to your GitHub Secret (NOTE_COOKIES_JSON)");
         } else {
             console.log("\n⚠️ Login status unclear. Please check the browser window.");
         }

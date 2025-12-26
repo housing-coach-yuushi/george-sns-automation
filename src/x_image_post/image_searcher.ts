@@ -55,7 +55,7 @@ export class ImageSearcher {
             generator: 'search',
             gsrnamespace: 6, // File
             gsrsearch: `${query} filetype:bitmap -filetype:svg`, // Simple filter
-            gsrlimit: 5,
+            gsrlimit: 50, // Increased from 5 to 50 to get more variety
             prop: 'imageinfo',
             iiprop: 'url|extmetadata|size',
             format: 'json',
@@ -84,6 +84,13 @@ export class ImageSearcher {
                     title = title.replace(/\.(jpg|jpeg|png|gif)$/i, "")
                         .replace(/\(\d+\)$/, "") // Remove trailing (12345)
                         .trim();
+
+                    // Filter out partial images / studies
+                    const lowerTitle = title.toLowerCase();
+                    const forbiddenTerms = ['detail', 'fragment', 'study', 'cropped', 'close-up', 'part of', 'sketch'];
+                    if (forbiddenTerms.some(term => lowerTitle.includes(term))) {
+                        continue;
+                    }
 
                     // Truncate if too long (max 60 chars)
                     if (title.length > 60) {
@@ -115,8 +122,8 @@ export class ImageSearcher {
             const searchRes = await axios.get(searchUrl, {
                 params: {
                     q: query,
-                    hasImages: true,
-                    isOnView: true // heuristic for "better" items
+                    hasImages: true
+                    // isOnView: true // REMOVED to increase search pool
                 }
             });
 

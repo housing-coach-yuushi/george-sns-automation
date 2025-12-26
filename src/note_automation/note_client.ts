@@ -8,7 +8,7 @@ const COOKIES_PATH = path.resolve(__dirname, '../../note_cookies.json');
 
 dotenv.config();
 
-export const postToNote = async (content: { title: string; body: string; headerImagePath?: string }) => {
+export const postToNote = async (content: { title: string; body: string; headerImagePath?: string; bodyImagePath?: string }) => {
     console.log("Starting Note Posting Process...");
 
     // Check if we want to run in headful mode for debugging (if env var is set)
@@ -140,16 +140,37 @@ export const postToNote = async (content: { title: string; body: string; headerI
         }
 
 
-        // Wait for loading spinner to disappear if present
-        try {
-            // indicated by the class in the error snapshot
-            const spinnerSelector = '.sc-e17b66d3-0';
-            if (await page.$(spinnerSelector)) {
-                console.log("Waiting for loading spinner to disappear...");
-                await page.waitForSelector(spinnerSelector, { hidden: true, timeout: 30000 });
+        // Wait for loading spinner to disappear if present with Retry Logic
+        const spinnerSelector = '.sc-e17b66d3-0'; // Full screen loading overlay
+        const maxRetries = 3;
+
+        for (let attempt = 1; attempt <= maxRetries; attempt++) {
+            try {
+                // Check if spinner exists immediately
+                const spinner = await page.$(spinnerSelector);
+                if (spinner) {
+                    console.log(`[Attempt ${attempt}/${maxRetries}] Spinner detected. Waiting for it to disappear...`);
+
+                    // Wait 10s for it to go away
+                    await page.waitForSelector(spinnerSelector, { hidden: true, timeout: 10000 });
+                    console.log("Spinner disappeared!");
+                    break; // Success
+                } else {
+                    // No spinner, good to go
+                    break;
+                }
+            } catch (e) {
+                console.warn(`[Attempt ${attempt}/${maxRetries}] Spinner timed out (still visible).`);
+
+                if (attempt < maxRetries) {
+                    console.log("Reloading page to recover...");
+                    await page.reload({ waitUntil: 'domcontentloaded' });
+                    // Give it a moment to settle/show spinner again
+                    await new Promise(r => setTimeout(r, 2000));
+                } else {
+                    console.error("Max retries reached. Spinner persistent. Continuing explicitly but may fail...");
+                }
             }
-        } catch (e) {
-            console.log("Spinner wait error (timed out? continuing anyway):", e);
         }
 
         // Wait for potential hydration or redirect
@@ -354,12 +375,96 @@ export const postToNote = async (content: { title: string; body: string; headerI
         const titleSelector = 'textarea[placeholder="記事タイトル"]';
         await page.type(titleSelector, content.title);
 
-        console.log("Writing Body...");
+        // --- Body Image Upload (New) ---
+        if (content.bodyImagePath) {
+            console.log("Uploading Body Image...");
+            try {
+                // Ensure body is focused
+                await page.click('.editor-input, [contenteditable="true"]');
+                await new Promise(r => setTimeout(r, 1000));
+
+                // 1. Trigger the "Add" menu
+                const addBtnSelector = 'button[aria-label="追加"], button[aria-label="メニューを開く"], button.o-editorBlockMenu__addButton, button[aria-label="ブロックを追加"]';
+                let addBtn = null;
+                try {
+                    // Try to wait for it briefly
+                    addBtn = await page.waitForSelector(addBtnSelector, { visible: true, timeout: 2000 });
+                } catch (e) { }
+
+                if (!addBtn) {
+                    console.log("Add button not immediately visible. Typing a newline to trigger it...");
+                    await page.keyboard.press('Enter');
+                    await new Promise(r => setTimeout(r, 500));
+                    await page.keyboard.press('ArrowUp');
+                    await new Promise(r => setTimeout(r, 500));
+                    try {
+                        addBtn = await page.waitForSelector(addBtnSelector, { visible: true, timeout: 2000 });
+                    } catch (e) { }
+                }
+
+                if (addBtn) {
+                    console.log("Found Add Block button. Clicking...");
+                    await addBtn.click();
+
+                    console.log("Searching for 'Image' option in menu via XPath...");
+                    await new Promise(r => setTimeout(r, 1000));
+
+                    // 2. Select "Image" from the menu using XPath for text content "画像"
+                    // Because aria-label might be missing
+                    const imgBtnHandle = await page.evaluateHandle(() => {
+                        const buttons = Array.from(document.querySelectorAll('button'));
+                        // Find button containing text "画像"
+                        return buttons.find(b => b.textContent?.includes('画像'));
+                    });
+
+                    if (imgBtnHandle.asElement()) {
+                        console.log("Found Image option (via text content). Uploading...");
+                        const [fileChooser] = await Promise.all([
+                            page.waitForFileChooser(),
+                            (imgBtnHandle as any).click(),
+                        ]);
+
+                        await fileChooser.accept([content.bodyImagePath]);
+                        console.log("Body Image accepted. Waiting for upload...");
+                        await new Promise(r => setTimeout(r, 5000));
+                        await page.keyboard.press('ArrowDown');
+                        await page.keyboard.press('Enter');
+                    } else {
+                        console.error("Could not find Image option via text content.");
+                        // Fallback to aria-label
+                        const fallbackSelector = 'button[aria-label="画像"], li[data-key="image"] button, button[data-id="image"]';
+                        const fallbackBtn = await page.$(fallbackSelector);
+                        if (fallbackBtn) {
+                            const [fileChooser] = await Promise.all([
+                                page.waitForFileChooser(),
+                                fallbackBtn.click(),
+                            ]);
+                            await fileChooser.accept([content.bodyImagePath]);
+                        } else {
+                            const menuHtml = await page.evaluate(() => document.body.innerHTML);
+                            fs.writeFileSync('note_add_menu_debug.html', menuHtml);
+                        }
+                    }
+
+                } else {
+                    console.error("Could not find Add Block (+) button.");
+                    const html = await page.content();
+                    fs.writeFileSync('note_body_debug.html', html);
+                }
+
+            } catch (e) {
+                console.error("Failed to upload body image:", e);
+                // Non-fatal, continue with text
+            }
+        }
+
+        console.log("Writing Body Text...");
         // Body is strictly contenteditable.
 
         // Backup plan: use page.keyboard
-        await page.keyboard.press('Tab'); // Move from title to body
-        await new Promise(r => setTimeout(r, 500));
+        // Ensure we are at the end or on a new line
+        await page.keyboard.press('ArrowDown');
+        await new Promise(r => setTimeout(r, 200));
 
         // Using evaluate to insert text into the active element (which should be body)
         // We use evaluate to handle contenteditable directly if needed, or execCommand
@@ -370,6 +475,7 @@ export const postToNote = async (content: { title: string; body: string; headerI
                 const editor = document.querySelector('.editor-input') || document.querySelector('[contenteditable="true"]');
                 if (editor) (editor as HTMLElement).focus();
             }
+            // Append text? execCommand 'insertText' inserts at cursor.
             document.execCommand('insertText', false, text);
         }, content.body);
 
@@ -416,7 +522,12 @@ export const postToNote = async (content: { title: string; body: string; headerI
 
         if (!clickedSettings) {
             console.log("Could not find '公開設定' or '公開' button. Skipping publish step.");
-            // throw new Error("Could not find '公開設定' or '公開' button...");
+            // Take screenshot for debug
+            const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+            await page.screenshot({ path: `note_post_error_no_button_${timestamp}.png`, fullPage: true });
+
+            // CRITICAL FIX: Throw error to ensure workflow fails RED if button is missing
+            throw new Error("Could not find '公開設定' or '公開' button. Workflow marked as failed.");
         } else {
             // Wait for modal
             await new Promise(r => setTimeout(r, 2000));
@@ -444,7 +555,34 @@ export const postToNote = async (content: { title: string; body: string; headerI
                 if (finalClicked) {
                     console.log("Clicked Final Publish Button!");
                 } else {
-                    console.error("Could not find final '投稿' or '公開' button.");
+                    // Try to find button by more specific selectors (Note UI may have changed)
+                    console.log("Trying additional selectors for final publish button...");
+
+                    const additionalSelectors = [
+                        'button[data-testid="publish-button"]',
+                        'button.o-modalFooter__primaryButton',
+                        'button[type="submit"]',
+                        'div[role="dialog"] button:last-child'
+                    ];
+
+                    for (const selector of additionalSelectors) {
+                        const btn = await page.$(selector);
+                        if (btn) {
+                            await btn.click();
+                            finalClicked = true;
+                            console.log(`Clicked button via selector: ${selector}`);
+                            break;
+                        }
+                    }
+
+                    if (!finalClicked) {
+                        // Take screenshot for debugging
+                        const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+                        await page.screenshot({ path: `note_publish_modal_${timestamp}.png`, fullPage: true });
+
+                        // CRITICAL: Throw error to mark workflow as failed
+                        throw new Error("Could not find final '投稿' or '公開' button. Note was NOT published.");
+                    }
                 }
             }
 

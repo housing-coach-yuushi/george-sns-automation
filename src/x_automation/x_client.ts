@@ -59,4 +59,20 @@ export class XClient {
             throw error;
         }
     }
+    async getTweetMetrics(tweetIds: string[]): Promise<any[]> {
+        try {
+            if (tweetIds.length === 0) return [];
+
+            // v2.tweets allows fetching multiple tweets by ID
+            const response = await this.client.v2.tweets(tweetIds, {
+                "tweet.fields": ["public_metrics", "created_at"]
+            });
+
+            // response.data is an array of TweetV2
+            return response.data;
+        } catch (error) {
+            console.error("Failed to fetch tweet metrics:", error);
+            return [];
+        }
+    }
 }

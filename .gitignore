@@ -6,3 +6,4 @@ note_cookies.json
 .DS_Store
 dist
 coverage
+generated/
