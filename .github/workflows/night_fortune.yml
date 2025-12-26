@@ -1,9 +1,9 @@
-name: 夜の占い投稿 (22:00 JST)
+name: 夜の占い投稿 (20:00 JST)
 
 on:
   schedule:
-    # 22:00 JST is 13:00 UTC
-    - cron: '0 13 * * *'
+    # 20:00 JST is 11:00 UTC
+    - cron: '0 11 * * *'
   workflow_dispatch: {}
 
 jobs:
@@ -45,5 +45,5 @@ jobs:
       if: failure()
       uses: actions/upload-artifact@v4
       with:
-        name: note-error-html
+        name: note-error-html-night
         path: note_post_error.html

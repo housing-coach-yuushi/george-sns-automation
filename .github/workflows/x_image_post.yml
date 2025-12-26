@@ -1,9 +1,9 @@
-name: X画像投稿 (12:00 JST)
+name: X画像投稿 (8:00 JST)
 
 on:
   schedule:
-    # 12:00 JST is 03:00 UTC
-    - cron: '0 3 * * *'
+    # 8:00 JST is 23:00 UTC (previous day)
+    - cron: '0 23 * * *'
   workflow_dispatch: {}
 
 jobs:
