@@ -49,7 +49,7 @@ jobs:
             libxfixes3 \
             libxrandr2 \
             libgbm1 \
-            libasound2
+            libasound2t64 || sudo apt-get install -yq libasound2
 
       - name: Run PDCA Agent
         env:
