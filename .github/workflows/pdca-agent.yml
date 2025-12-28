@@ -1,0 +1,85 @@
+name: GEORGE PDCA Agent
+
+on:
+  schedule:
+    # 毎日朝8時（日本時間、UTC 23:00前日）
+    - cron: '0 23 * * *'
+    # 毎日夜20時（日本時間、UTC 11:00）
+    - cron: '0 11 * * *'
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: '実行モード'
+        required: true
+        default: 'full'
+        type: choice
+        options:
+          - full
+          - analyze
+          - optimize
+
+jobs:
+  pdca-cycle:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Setup Puppeteer dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -yq \
+            libnss3 \
+            libatk1.0-0 \
+            libatk-bridge2.0-0 \
+            libcups2 \
+            libdrm2 \
+            libxkbcommon0 \
+            libxcomposite1 \
+            libxdamage1 \
+            libxfixes3 \
+            libxrandr2 \
+            libgbm1 \
+            libasound2
+
+      - name: Run PDCA Agent
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          NOTE_EMAIL: ${{ secrets.NOTE_EMAIL }}
+          NOTE_PASSWORD: ${{ secrets.NOTE_PASSWORD }}
+        run: |
+          if [ "${{ github.event.inputs.mode }}" = "analyze" ]; then
+            npm run agent -- --analyze
+          elif [ "${{ github.event.inputs.mode }}" = "optimize" ]; then
+            npm run agent -- --optimize
+          else
+            npm run agent
+          fi
+
+      - name: Upload reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pdca-reports-${{ github.run_id }}
+          path: generated/reports/
+          retention-days: 30
+
+      - name: Commit memory updates
+        if: success()
+        run: |
+          git config --global user.name 'GEORGE Agent'
+          git config --global user.email 'agent@george.bar'
+          git add data/agent_memory.json data/engagement_history.json || true
+          git diff --staged --quiet || git commit -m "📊 PDCA: $(date +'%Y-%m-%d %H:%M') 自動学習更新"
+          git push || echo "Nothing to push"
